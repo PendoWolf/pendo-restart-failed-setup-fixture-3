@@ -1,11 +1,13 @@
 import cors from "cors";
 import express, { type NextFunction, type Request, type Response } from "express";
-import { requireAuth } from "./auth/require-auth.js";
+import * as pendo from "pendo-server-sdk";
+import { type AuthLocals, requireAuth } from "./auth/require-auth.js";
 import { accountsRouter } from "./routes/accounts.js";
 import { assistantRouter } from "./routes/assistant.js";
 import { authRouter } from "./routes/auth.js";
 import { tripsRouter } from "./routes/trips.js";
 import { usersRouter } from "./routes/users.js";
+import type { ChatRequest } from "./types.js";
 
 /** Builds the Tripwise API: JSON only, no pages of its own. */
 export function createApp(corsOrigin: string) {
@@ -22,7 +24,22 @@ export function createApp(corsOrigin: string) {
   app.use("/api/trips", requireAuth, tripsRouter);
   app.use("/api/users", requireAuth, usersRouter);
   app.use("/api/accounts", requireAuth, accountsRouter);
-  app.use("/api/assistant", requireAuth, assistantRouter);
+  app.use(
+    "/api/assistant",
+    requireAuth,
+    // Tells Pendo Agent Analytics whose conversation each assistant turn belongs to.
+    pendo.middleware((req: Request) => {
+      const { user, account } = (req.res?.locals ?? {}) as Partial<AuthLocals>;
+      const body = req.body as Partial<ChatRequest> | undefined;
+      const conversationId = typeof body?.conversationId === "string" ? body.conversationId : "";
+      return {
+        visitorId: user?.id, // TODO: map to the visitor id your Pendo web snippet uses
+        accountId: account?.id, // TODO: map to the Pendo account id
+        conversationId: conversationId || undefined,
+      };
+    }),
+    assistantRouter,
+  );
 
   app.use((_req, res) => {
     res.status(404).json({ error: "not found" });
